@@ -1,1 +1,43 @@
-# (requirements content - see assistant output)
+# Streamlit UI
+streamlit==1.33.0
+streamlit-option-menu==0.3.6
+streamlit-extras==0.2.8
+
+# Core Helpers
+pandas
+numpy
+python-dotenv
+pydantic
+requests
+cryptography
+
+# Vector DB + Embeddings
+langchain==0.1.17
+langchain-community==0.0.30
+langchain-openai==0.1.8
+langchain-google-genai==0.1.2
+google-generativeai==0.3.2
+chromadb==0.4.24
+
+# Databricks
+databricks-sql-connector==2.9.0
+
+# Neo4j
+neo4j==5.11.0
+
+# PPT Export
+python-pptx==0.6.21
+
+# Background Job Placeholder
+celery==5.3.1
+redis==5.0.3
+
+# File parsing for uploads
+PyPDF2
+tiktoken
+
+# Security
+bcrypt
+
+# Optional Local Embeddings (fallback)
+sentence-transformers==2.2.2

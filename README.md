@@ -1,24 +1,60 @@
-# DBQuery
+DBQuery — Streamlit Graph + SQL Agent (E2E Pharma Supply Chain)
 
-# Streamlit Graph + SQL Agent (DBQuery)
+This project demonstrates an enterprise-grade Streamlit application for real-time supply chain intelligence powered by:
 
-This project demonstrates an enterprise-style Streamlit application that connects to Databricks, Neo4j, and a vector database, with demo/real mode switching, configuration cockpit, and export utilities.
+✅ Databricks SQL (real + demo)
+✅ Neo4j Material Flow Graph (real + demo)
+✅ Vector search (Chroma) + Hybrid RAG
+✅ Pharma-specific E2E flow (raw → WIP → batch → FG → DC → Market)
+✅ “Demo Mode” with pre-loaded pharma supply chain data
+✅ Board-ready PPT export
 
-## ✅ Features
+It operates in two modes:
 
-* Smart configuration cockpit with OTP email login (admin)
-* Databricks SQL connector (demo + real modes)
-* Neo4j sync hooks (demo + real modes)
-* Vector DB integration (Chroma local) + Gemini embedding pipeline
-* Upload grounding docs (PDF/JSON) and embed
-* Role-based UI (Admin / Analyst / Viewer)
-* Query execution with Databricks
-* Board-ready export utility
-* Streamlit Cloud compatible
+Mode	Description
+Demo Mode	Uses included CSV/JSON pharma datasets and scripted GenAI responses
+Enterprise Mode	Connects to live Databricks / Neo4j / Vectors & executes real SQL + graph queries
 
-## 📂 Project Structure
+This allows seamless PoC → Enterprise rollout.
 
-```
+✅ Features
+🔧 Configuration Cockpit
+
+Admin OTP login
+
+Set Databricks SQL/Neo4j creds
+
+Toggle Demo vs Real mode
+
+🧠 AI Intelligence
+
+Hybrid Agent: SQL + Graph + RAG
+
+Embeddings: Gemini / fallback: Sentence-Transformer
+
+Domain: Pharma Supply Chain / Material Flow
+
+Smart grounding on uploaded SOPs, policies, BOM sheets
+
+📊 Enterprise Data Flow Support
+
+E2E material traceability
+
+Vendor → RM → Batch → Plant → DC → Market
+
+Touchpoints: procurement, QA, batch release, logistics
+
+📎 Upload / Embed Documents
+
+PDF / JSON / XLS vendor & RM spec sheets
+
+Create searchable knowledge bank
+
+📤 Board-Ready Exports
+
+Generate PPT decks with charts & flows
+
+📂 Project Structure
 DBQuery/
 │── app.py
 │── config/
@@ -36,68 +72,137 @@ DBQuery/
 │── .streamlit/
 │   └── secrets.toml
 │── requirements.txt
-└── README.md
-```
+└── README.md  ← (this file)
 
-## 🚀 Deployment Steps
+🧪 Demo Mode Instructions
+✅ Enable Demo Mode
 
-1. Create a GitHub repo and push the files.
-2. Deploy to Streamlit Cloud (select app.py).
-3. Configure secrets (see .streamlit/secrets.toml or Streamlit Cloud secrets).
-4. Install requirements: pip install -r requirements.txt
-5. Run locally: streamlit run app.py
+In UI → Admin → Settings → Toggle "Demo Mode"
 
-## 📦 Requirements / Dependencies
+📁 Demo Datasets Used
 
-Add the following to your requirements.txt (or use as guidance):
+supply_chain_sample.csv → Material flow (PO → GRN → Batch → FG movement)
 
-# ---- Streamlit UI ----
-streamlit==1.33.0
-streamlit-option-menu==0.3.6
-streamlit-extras==0.2.8
+vendor_performance.json → Vendor OTIF/quality scores
 
-# ---- Core Helpers ----
-pandas
-numpy
-python-dotenv
-pydantic
-requests
-cryptography
+🎯 Example Prompts & Expected Outputs
+Prompt
 
-# ---- Vector DB + Embeddings ----
-langchain==0.1.17
-langchain-community==0.0.30
-langchain-openai==0.1.8
+Show traceability for Batch B2317 from vendor RM to finished goods shipment
 
-# Gemini langchain binding
-langchain-google-genai==0.1.2
+Expected Output
 
-# Google Gemini SDK
-google-generativeai==0.3.2
+SQL View: RM PO → GRN → Batch → FG → Shipment
 
-chromadb==0.4.24
+Graph view: Vendor → RM Lot → Batch → DC → Market
 
-# ---- Databricks ----
-databricks-sql-connector==2.9.0
+KPI: lead time, cycle time, QA holds
 
-# ---- Neo4j ----
-neo4j==5.11.0
+Prompt
 
-# ---- PPT Export ----
-python-pptx==0.6.21
+Highlight vendors with repeat RM quality deviations in last 3 months
 
-# ---- Background Job Placeholder ----
-celery==5.3.1
-redis==5.0.3
+Expected Output
 
-# ---- File parsing for uploads ----
-PyPDF2
-tiktoken
+Table of vendors
 
-# ---- Security ----
-bcrypt
+OTIF, quality score, CAPA notes
 
-# ---- Optional Local Embeddings (fallback) ----
-sentence-transformers==2.2.2
+Suggested root causes + improvement actions
 
----
+Prompt
+
+What is the average plant-to-market cycle time for Product X
+
+Expected
+
+Mean / p95 cycle times
+
+Bottleneck stage inference
+
+Chart + narrative
+
+🏗️ Enterprise Mode (Real)
+Requires:
+
+✅ Databricks SQL Warehouse
+✅ Neo4j Aura / VM instance
+✅ Object storage (optional for ingestion)
+
+Configure in admin settings page.
+
+🚀 Deployment Steps
+Streamlit Cloud
+
+Push repo to GitHub
+
+Create Streamlit Cloud app → select app.py
+
+Add secrets via Streamlit Cloud UI
+
+Launch
+
+Local Run
+pip install -r requirements.txt
+streamlit run app.py
+
+VM Deployment (Ubuntu)
+sudo apt update && sudo apt install python3-pip -y
+pip install -r requirements.txt
+nohup streamlit run app.py --server.port 8501 &
+
+🔐 Secrets Template (.streamlit/secrets.toml)
+[databricks]
+host = ""
+token = ""
+warehouse = ""
+
+[neo4j]
+uri = ""
+user = ""
+password = ""
+
+[email]
+smtp_server = ""
+smtp_port = ""
+username = ""
+password = ""
+
+⚙️ Fallback Config (config/settings.json)
+{
+  "mode": "demo",
+  "embedding": "gemini",
+  "enable_ppt_export": true
+}
+
+📦 Requirements
+
+(Already provided earlier — unchanged)
+
+🎬 Demo Script for Stakeholders
+Persona
+
+Supply Chain Ops Lead / COO Dashboard
+
+Flow
+Step	Action	Result
+1	Login as admin	Toggle demo mode
+2	Query material traceability	Batch lineage table + graph
+3	View RM vendor risk	OTIF / quality score
+4	Upload SOP / CAPA	Instant vector index
+5	“Explain supply risk”	GenAI narrative
+6	Export PPT	Board-deck generated
+
+🎤 Suggested line:
+
+"Now imagine this switching from sample to live Databricks tables in one click."
+
+📎 Support Docs Automatically Loaded (Optional)
+
+RM Specs
+
+Vendor SLA Sheets
+
+SAP BOM
+
+GMP SOP PDFs

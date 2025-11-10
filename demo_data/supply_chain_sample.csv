@@ -1,0 +1,4 @@
+supplier_id,supplier_name,lead_time_days
+1,Supplier A,10
+2,Supplier B,7
+3,Supplier C,14

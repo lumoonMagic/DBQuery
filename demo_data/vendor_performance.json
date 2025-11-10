@@ -1,0 +1,6 @@
+{
+  "vendors": [
+    {"id": 1, "name": "Supplier A", "on_time_pct": 0.95},
+    {"id": 2, "name": "Supplier B", "on_time_pct": 0.89}
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "demo_mode": true,
+  "default_role": "Viewer",
+  "vector_store_path": "vector_store/"
+}

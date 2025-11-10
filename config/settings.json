@@ -1,5 +1,27 @@
 {
-  "demo_mode": true,
-  "default_role": "Viewer",
-  "vector_store_path": "vector_store/"
+  "app_mode": "DEMO",
+  "databricks": {
+    "host": "",
+    "token": "",
+    "cluster_id": ""
+  },
+  "neo4j": {
+    "uri": "",
+    "user": "",
+    "password": ""
+  },
+  "vector_db": {
+    "provider": "chroma",
+    "path": "./vector_store"
+  },
+  "llm": {
+    "provider": "gemini",
+    "model": "gemini-2.0-flash-embedding"
+  },
+  "email_otp": {
+    "smtp_server": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": ""
+  }
 }

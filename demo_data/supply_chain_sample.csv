@@ -1,9 +1,7 @@
-order_id,material_id,material_name,vendor_id,vendor_name,plant,order_qty,received_qty,order_date,delivery_date,status
-1001,MAT-001,Steel Rods,V001,Alpha Metals,PL01,500,500,2025-01-05,2025-01-12,Delivered
-1002,MAT-002,Copper Sheets,V002,Prime Copper,PL02,300,250,2025-01-06,2025-01-14,Partial
-1003,MAT-003,Plastic Pellets,V003,PolyChem,PL01,1000,1000,2025-01-07,2025-01-15,Delivered
-1004,MAT-001,Steel Rods,V001,Alpha Metals,PL03,400,0,2025-01-09,,Pending
-1005,MAT-004,Packaging Boxes,V004,BoxWorks,PL02,200,200,2025-01-10,2025-01-16,Delivered
-1006,MAT-002,Copper Sheets,V002,Prime Copper,PL01,600,580,2025-01-12,2025-01-18,Delivered
-1007,MAT-005,Glass Panels,V005,ClearGlass,PL03,150,140,2025-01-15,2025-01-22,Partial
-1008,MAT-003,Plastic Pellets,V003,PolyChem,PL01,750,0,2025-01-18,,Pending
+batch_id,drug_code,drug_name,stage,supplier,plant,planned_qty,produced_qty,batch_start,batch_release,status
+B2025001,API-001,Atorvastatin,API Manufacturing,Sun Pharma,API-PL01,5000,5000,2025-01-02,2025-01-10,Completed
+B2025002,API-002,Metformin,API Manufacturing,Dr Reddy's Labs,API-PL02,8000,7800,2025-01-03,2025-01-12,Completed
+B2025003,FDF-003,Paracetamol,Formulation,Sun Pharma,FDF-PL01,9000,9000,2025-01-05,2025-01-14,Completed
+B2025004,FDF-004,Insulin,Formulation,Novo Nordisk,FDF-PL02,4000,3800,2025-01-06,2025-01-16,Partial
+B2025005,PCK-001,Atorvastatin,Packaging,Cipla,PCK-PL01,10000,9500,2025-01-10,2025-01-20,Completed
+B2025006,PCK-004,Insulin,Packaging,Novo Nordisk,PCK-PL02,4500,0,2025-01-12,,Pending

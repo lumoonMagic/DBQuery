@@ -1,4 +1,6 @@
-"""Streamlit entrypoint for Streamlit Graph + SQL Agent (POC)
+# app.py
+"""
+Streamlit entrypoint for Streamlit Graph + SQL Agent (POC)
 
 - Default theme: Aurora Purple (configurable)
 - Demo vs Real toggle (Demo safe to run without external services)

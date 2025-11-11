@@ -29,7 +29,7 @@ The application supports both **DEMO mode** for POC scenarios and **REAL mode** 
 
 1. User enters a natural language prompt.
 2. App queries Neo4j to identify relevant tables/columns.
-3. LLM builds SQL query.
+3. LLM builds Databricks SQL query.
 4. Databricks connector executes query on target cluster.
 5. Results returned and displayed in UI:
 

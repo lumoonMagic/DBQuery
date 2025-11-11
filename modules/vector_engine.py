@@ -1,118 +1,154 @@
+# modules/vector_engine.py
 """
-vector_engine.py
-Hybrid LangChain + Gemini embeddings + Chroma vector DB layer
-with DEMO + REAL mode support.
+Stable vector engine for DBQuery POC.
 
-Functions exposed:
+- store_documents_and_embeddings(uploaded_files, vec_config)
+- similarity_search(query, vec_config, k=5)
 
-- init_vector_store(config) → chroma client
-- embed_and_store(docs, metadata, config)
-- similarity_search(query, config, k=5)
-- load_demo_embeddings() (for demo mode)
-
-Gemini model names configured by UI/config cockpit.
-Stored keys:
-  config['gemini_model']
-  config['gemini_api_key']
-  config['vector_dir']
-  config['demo_mode']
-
-Chroma runs local for POC. In REAL mode can be swapped for Qdrant/Pinecone.
+Behavior:
+- If chromadb + an embedding backend exists, store embeddings in Chroma.
+- If not, save files locally and return demo metadata.
 """
+
 import os
 import json
+from pathlib import Path
 from typing import List, Dict, Any
 
-# LangChain & Chroma
+BASE_DIR = Path(__file__).resolve().parent.parent
+GROUNDING_DIR = BASE_DIR / "grounding_files"
+GROUNDING_DIR.mkdir(exist_ok=True)
+
+# Optional imports
 try:
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    from langchain_chroma import Chroma
-    from langchain.docstore.document import Document
-    LC_AVAILABLE = True
+    import chromadb
+    from chromadb.config import Settings
+    CHROMADB_AVAILABLE = True
 except Exception:
-    LC_AVAILABLE = False
+    chromadb = None
+    CHROMADB_AVAILABLE = False
 
-# Fallback local embedding model (MiniLM)
 try:
-    from langchain.embeddings import HuggingFaceEmbeddings
-    HF_AVAILABLE = True
+    from sentence_transformers import SentenceTransformer
+    SENTEVAL_AVAILABLE = True
 except Exception:
-    HF_AVAILABLE = False
+    SentenceTransformer = None
+    SENTEVAL_AVAILABLE = False
 
-DEFAULT_VECTOR_DIR = "vector_store"
+# Simple local embedding function (fallback)
+def _local_embed_texts(texts: List[str]) -> List[List[float]]:
+    # deterministic simple hashed vector fallback (not real embeddings)
+    import hashlib
+    out = []
+    for t in texts:
+        h = hashlib.sha256(t.encode()).digest()
+        vec = [b / 255.0 for b in h[:128]]  # 128-d pseudo-vector
+        out.append(vec)
+    return out
 
+def _use_sentence_transformer(texts: List[str], model_name="all-MiniLM-L6-v2"):
+    if not SENTEVAL_AVAILABLE:
+        return _local_embed_texts(texts)
+    model = SentenceTransformer(model_name)
+    embs = model.encode(texts, show_progress_bar=False)
+    return embs.tolist()
 
-def init_vector_store(config: Dict[str, Any]):
-    """Initialize Chroma vector store directory."""
-    if not LC_AVAILABLE:
-        raise RuntimeError("LangChain or Chroma not installed. Check requirements.txt")
+def init_chroma_client(vec_dir: str = "./vector_store"):
+    if not CHROMADB_AVAILABLE:
+        raise RuntimeError("chromadb not installed")
+    settings = Settings(persist_directory=str(vec_dir))
+    client = chromadb.PersistentClient(path=str(vec_dir))
+    # older chromadb versions use chromadb.Client(Settings(...)). We try to be defensive.
+    return client
 
-    vector_dir = config.get("vector_dir", DEFAULT_VECTOR_DIR)
-    os.makedirs(vector_dir, exist_ok=True)
+def store_documents_and_embeddings(uploaded_files: List[Any], vec_config: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """
+    uploaded_files: list of Streamlit UploadedFile objects
+    vec_config: dict: {'provider': 'DEMO'|'Chroma', 'vector_dir': './vector_store', 'embedding_model': 'sentence-transformers/all-MiniLM-L6-v2'}
+    """
+    provider = (vec_config or {}).get("provider", "DEMO")
+    vector_dir = (vec_config or {}).get("vector_dir", "./vector_store")
+    embedding_model = (vec_config or {}).get("embedding_model", "all-MiniLM-L6-v2")
+    stored = []
 
-    return Chroma(persist_directory=vector_dir, embedding_function=_get_embedding_fn(config))
+    texts = []
+    metas = []
+    ids = []
 
+    for f in uploaded_files:
+        filename = f.name
+        dest = GROUNDING_DIR / filename
+        with open(dest, "wb") as out:
+            out.write(f.getbuffer())
+        # try to get text content for simple files
+        try:
+            content = f.getvalue().decode("utf-8", errors="ignore")
+        except Exception:
+            content = f"name:" + filename
+        texts.append(content[:4000])  # truncate to reasonable size
+        metas.append({"filename": filename})
+        ids.append(filename + "_" + str(len(stored)))
 
-def _get_embedding_fn(config: Dict[str, Any]):
-    """Choose embedding model based on config and availability."""
-    if config.get("demo_mode", True):
-        # In demo mode try HF MiniLM first if available
-        if HF_AVAILABLE:
-            return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-        # Else fallback to Gemini if key exists
-        if LC_AVAILABLE and config.get("gemini_api_key"):
-            return GoogleGenerativeAIEmbeddings(
-                model=config.get("gemini_model", "models/embedding-001"),
-                google_api_key=config.get("gemini_api_key"),
-            )
-        raise RuntimeError("No embedding backend available in DEMO mode.")
+        stored.append({"name": filename, "path": str(dest), "provider": provider})
 
-    # REAL mode flow
-    if config.get("gemini_api_key"):
-        return GoogleGenerativeAIEmbeddings(
-            model=config.get("gemini_model", "models/embedding-001"),
-            google_api_key=config.get("gemini_api_key"),
-        )
+    # embeddings + persist (Chroma)
+    if provider == "Chroma" and CHROMADB_AVAILABLE:
+        try:
+            client = init_chroma_client(vector_dir)
+            # create/get collection
+            coll_name = vec_config.get("collection_name", "dbquery_grounding") if vec_config else "dbquery_grounding"
+            try:
+                collection = client.get_collection(coll_name)
+            except Exception:
+                collection = client.create_collection(name=coll_name)
+            # compute embeddings
+            if SENTEVAL_AVAILABLE:
+                embs = _use_sentence_transformer(texts, model_name=embedding_model)
+            else:
+                embs = _local_embed_texts(texts)
+            collection.upsert(ids=ids, metadatas=metas, documents=texts, embeddings=embs)
+            client.persist()
+            return stored
+        except Exception as e:
+            # fallback: save files only
+            stored.append({"error": str(e)})
+            return stored
 
-    if HF_AVAILABLE:
-        return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    # DEMO fallback: only saved to disk
+    return stored
 
-    raise RuntimeError("No embedding backend configured for REAL mode.")
-
-
-def embed_and_store(docs: List[str], metadata: List[dict], config: Dict[str, Any]):
-    """Embed a list of text docs & store into vector db with metadata."""
-    vectordb = init_vector_store(config)
-    lang_docs = [Document(page_content=t, metadata=m or {}) for t, m in zip(docs, metadata)]
-    vectordb.add_documents(lang_docs)
-    vectordb.persist()
-    return True
-
-
-def similarity_search(query: str, config: Dict[str, Any], k: int = 5):
-    """Return top-k similar docs for a query string."""
-    vectordb = init_vector_store(config)
-    try:
-        results = vectordb.similarity_search(query, k=k)
-        return [{"text": r.page_content, "metadata": r.metadata} for r in results]
-    except Exception as e:
-        return []
-
-
-# DEMO / sample embeddings for supply chain use case
-_demo_data_path = os.path.join("demo_data", "demo_supply_chain_vectors.json")
-
-
-def load_demo_embeddings() -> List[Dict[str, Any]]:
-    """Load demo embedding results if vector DB disabled."""
-    if not os.path.exists(_demo_data_path):
-        return [
-            {"text": "Vendor ABC has 98% on-time delivery performance", "metadata": {"source": "demo"}},
-            {"text": "Vendor XYZ has high defect rate and delays", "metadata": {"source": "demo"}},
-        ]
-    with open(_demo_data_path, "r") as f:
-        return json.load(f)
-
+def similarity_search(query: str, vec_config: Dict[str, Any] = None, k: int = 5) -> List[Dict[str, Any]]:
+    provider = (vec_config or {}).get("provider", "DEMO")
+    vector_dir = (vec_config or {}).get("vector_dir", "./vector_store")
+    results = []
+    if provider == "Chroma" and CHROMADB_AVAILABLE:
+        try:
+            client = init_chroma_client(vector_dir)
+            coll_name = (vec_config or {}).get("collection_name", "dbquery_grounding")
+            # try get collection
+            try:
+                collection = client.get_collection(coll_name)
+            except Exception:
+                return []
+            # compute query embedding
+            if SENTEVAL_AVAILABLE:
+                q_emb = _use_sentence_transformer([query])[0]
+            else:
+                q_emb = _local_embed_texts([query])[0]
+            out = collection.query(query_embeddings=[q_emb], n_results=k)
+            # chroma returns dict structure; adapt to friendly format
+            docs = out.get("documents", [[]])[0]
+            metadatas = out.get("metadatas", [[]])[0]
+            for d, m in zip(docs, metadatas):
+                results.append({"text": d, "metadata": m})
+            return results
+        except Exception:
+            return []
+    # DEMO: naive file search
+    for p in GROUNDING_DIR.iterdir():
+        if query.lower() in p.name.lower():
+            results.append({"text": p.name, "metadata": {"path": str(p)}})
+    return results
 
 if __name__ == "__main__":
-    print("Vector Engine module ready. Use embed_and_store() & similarity_search().")
+    print("vector_engine module loaded (stable demo).")

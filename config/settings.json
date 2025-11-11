@@ -1,27 +1,40 @@
 {
   "app_mode": "DEMO",
+
+  "ui": {
+    "default_theme": "light",
+    "enable_canvas": true
+  },
+
   "databricks": {
-    "host": "",
-    "token": "",
-    "cluster_id": ""
+    "enable": false,
+    "host": "https://<workspace-url>.cloud.databricks.com",
+    "api_token": "",
+    "catalog": "main",
+    "schema": "default",
+    "warehouse_id": ""
   },
+
   "neo4j": {
-    "uri": "",
+    "enable": false,
+    "uri": "bolt://localhost:7687",
     "user": "",
-    "password": ""
+    "password": "",
+    "database": "neo4j"
   },
-  "vector_db": {
+
+  "vector_store": {
     "provider": "chroma",
-    "path": "./vector_store"
+    "embedding_model": "google-embeddings-gecko-002",
+    "persist_directory": "vector_store"
   },
-  "llm": {
-    "provider": "gemini",
-    "model": "gemini-2.0-flash-embedding"
-  },
-  "email_otp": {
-    "smtp_server": "",
-    "smtp_port": 587,
-    "smtp_user": "",
-    "smtp_password": ""
+
+  "demo_mode": {
+    "response_speed": "fast",
+    "use_sample_graph": true,
+    "use_sample_tables": true,
+    "use_sample_charts": true,
+    "enable_demo_embeddings": true,
+    "traceability_simulation": true
   }
 }

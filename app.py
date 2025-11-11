@@ -1,38 +1,42 @@
 # app.py
 """
-Streamlit entrypoint for Streamlit Graph + SQL Agent (POC)
-
-- Default theme: Aurora Purple (configurable)
-- Demo vs Real toggle (Demo safe to run without external services)
-- Configuration Cockpit (OTP demo gating)
-- Query generation slot + expert SQL preview
-- Upload grounding docs -> vector pipeline (pluggable)
-- Neo4j sync hook (pluggable)
-- Databricks execution (pluggable)
-- PPT export (pluggable)
+Streamlit entrypoint - stable demo-first version.
+- Removes deprecated experimental_rerun calls.
+- Applies theme CSS immediately (no rerun).
+- Defensive imports for optional modules.
+- Keeps demo mode fully functional without external dependencies.
 """
 
 import streamlit as st
 import pandas as pd
-import json
 import time
 from pathlib import Path
+import json
 
-# --- Defensive imports (modules are created separately) ---
+# Defensive module imports (modules may be added later)
 try:
-    from modules import databricks_connector, neo4j_sync, vector_engine, export_ppt
+    from modules import databricks_connector, neo4j_sync, export_ppt
 except Exception:
-    # If modules are not present yet, we define minimal fallbacks to keep demo mode working.
     databricks_connector = None
     neo4j_sync = None
-    vector_engine = None
     export_ppt = None
+
+try:
+    from modules import vector_engine
+except Exception:
+    vector_engine = None
+
+# helper modules (optional)
+try:
+    from modules import ui_components, utils
+except Exception:
+    ui_components = None
+    utils = None
 
 # -----------------------
 # App configuration
 # -----------------------
-st.set_page_config(layout="wide", page_title="AI Supply Chain Insight Assistant", initial_sidebar_state="expanded")
-
+st.set_page_config(layout="wide", page_title="DBQuery - Pharma Supply Chain", initial_sidebar_state="expanded")
 APP_DIR = Path(__file__).parent
 GROUNDING_DIR = APP_DIR / "grounding_files"
 GROUNDING_DIR.mkdir(exist_ok=True)
@@ -58,27 +62,12 @@ THEMES = {
         "card": "#ffffff",
         "text": "#0f1724",
         "accent": "#0b74de"
-    },
-    "Google Material": {
-        "bg": "#ffffff",
-        "card": "#f3f4f6",
-        "text": "#111827",
-        "accent": "#3b82f6"
-    },
-    "Databricks Red": {
-        "bg": "#0b0b0f",
-        "card": "#1b1b1f",
-        "text": "#f7f7f7",
-        "accent": "#ea4335"
     }
 }
 
-# default theme
-DEFAULT_THEME = "Aurora Purple"
 
-# helper to inject theme CSS
 def apply_theme(theme_name: str):
-    p = THEMES.get(theme_name, THEMES[DEFAULT_THEME])
+    p = THEMES.get(theme_name, THEMES["Aurora Purple"])
     css = f"""
     <style>
     .reportview-container {{ background: {p['bg']}; color: {p['text']}; }}
@@ -91,25 +80,21 @@ def apply_theme(theme_name: str):
     """
     st.markdown(css, unsafe_allow_html=True)
 
-# apply default theme (initial)
-theme_choice_default = DEFAULT_THEME
-if "ui_theme" not in st.session_state:
-    st.session_state.ui_theme = theme_choice_default
-apply_theme(st.session_state.ui_theme)
 
 # -----------------------
 # Session initialization
 # -----------------------
-if "history" not in st.session_state:
-    st.session_state.history = []           # chat history and actions
-if "last_df" not in st.session_state:
+if "initialized" not in st.session_state:
+    st.session_state.initialized = True
+    st.session_state.ui_theme = "Aurora Purple"
+    st.session_state.demo_mode = True
+    st.session_state.history = []
     st.session_state.last_df = None
-if "pinned" not in st.session_state:
     st.session_state.pinned = []
-if "config" not in st.session_state:
-    st.session_state.config = {}            # live config loaded from secrets or saved config
-if "demo_mode" not in st.session_state:
-    st.session_state.demo_mode = True      # default to demo
+    st.session_state.config = {}
+
+# Apply theme once (no rerun required)
+apply_theme(st.session_state.ui_theme)
 
 # -----------------------
 # Sidebar: Configuration Cockpit
@@ -122,13 +107,12 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("Admin Access (OTP)")
-    admin_email = st.text_input("Admin email to send OTP (demo)")
+    admin_email = st.text_input("Admin email (demo)")
     if st.button("Send OTP (demo)"):
-        # demo OTP printed to log (replace with SMTP in prod)
-        demo_otp = "123456"
-        st.session_state._demo_otp = demo_otp
-        st.success("OTP generated and displayed in console (demo).")
-        st.write(f"Demo OTP: {demo_otp}")  # in demo show OTP
+        st.session_state._demo_otp = "123456"
+        st.success("Demo OTP generated and shown (for demo).")
+        st.write("Demo OTP: 123456")
+
     otp_val = st.text_input("Enter OTP to unlock admin")
     if st.button("Verify OTP"):
         if otp_val and otp_val == st.session_state.get("_demo_otp"):
@@ -137,44 +121,35 @@ with st.sidebar:
         else:
             st.error("Invalid OTP")
 
-    # theme selector
     st.markdown("---")
     st.subheader("UI Theme")
     theme = st.selectbox("Theme", list(THEMES.keys()), index=list(THEMES.keys()).index(st.session_state.ui_theme))
     if theme != st.session_state.ui_theme:
+        # apply theme immediately; do NOT call rerun
         st.session_state.ui_theme = theme
         apply_theme(theme)
-        st.experimental_rerun()
+        st.info(f"Theme switched to {theme} (applied live)")
 
-    # model & vector DB config (store in-state; persistence module will save encrypted)
     st.markdown("---")
     st.subheader("Model & Vector DB")
-    model_provider = st.selectbox("Model Provider", ["Gemini-2.5-Flash (GenAI)", "Other"])
-    model_endpoint = st.text_input("Model endpoint (for embeddings & LLM calls)", value=st.session_state.config.get("model_endpoint",""))
-    model_key = st.text_input("Model API Key (store encrypted)", type="password", value=st.session_state.config.get("model_key",""))
-    vec_provider = st.selectbox("Vector DB Provider", ["DEMO","Chroma","Pinecone","Qdrant","FAISS"], index=0)
-    vec_api_key = st.text_input("Vector DB API Key", type="password", value=st.session_state.config.get("vec_api_key",""))
-    if st.button("Save Config (local POC)"):
-        # persist into session config; modules should provide secure saving hooks
+    model_endpoint = st.text_input("Model endpoint", value=st.session_state.config.get("model_endpoint", ""))
+    model_key = st.text_input("Model API Key", type="password", value=st.session_state.config.get("model_key", ""))
+    vec_provider = st.selectbox("Vector DB Provider", ["DEMO", "Chroma", "Pinecone"], index=0)
+    vec_api_key = st.text_input("Vector DB API Key", type="password", value=st.session_state.config.get("vec_api_key", ""))
+
+    if st.button("Save Config (session only)"):
         st.session_state.config.update({
             "model_endpoint": model_endpoint,
             "model_key": model_key,
             "vec_provider": vec_provider,
             "vec_api_key": vec_api_key
         })
-        st.success("Config saved to session (POC). Persist to secure store for production.")
-
-    st.markdown("---")
-    st.markdown("**Quick Links**")
-    st.markdown("- Upload Grounding Docs in main UI")
-    st.markdown("- Use Demo Mode for safe demo")
-    st.markdown("---")
-    st.markdown("Streamlit Cloud: set secrets under App Settings → Secrets")
+        st.success("Config saved to session (POC)")
 
 # -----------------------
-# Main layout: top header & 2-column layout
+# Main layout: top header & columns
 # -----------------------
-st.markdown(f"# <span class='accent'>AI Supply Chain Insight Assistant</span>", unsafe_allow_html=True)
+st.markdown(f"# <span class='accent'>DBQuery — Pharma Supply Chain POC</span>", unsafe_allow_html=True)
 left_col, right_col = st.columns([2, 3])
 
 # ---- Left: Chat / Input ----
@@ -182,88 +157,72 @@ with left_col:
     st.markdown("### 💬 Chat & Query")
     prompt = st.text_area("Natural language question (e.g. 'Top 5 low performing vendors in US')", height=120)
     expert_mode = st.checkbox("Expert mode (show SQL before execution)")
-    if st.button("Generate SQL (call Query Generator)"):
-        # Placeholder: call your SQL-generator or adapter
-        if st.session_state.demo_mode:
-            # demo generator: simple mapping (keeps POC independent)
-            if "vendor" in prompt.lower() and "top" in prompt.lower():
-                sql = "SELECT vendor_id, vendor_name, on_time_rate FROM demo.vendors ORDER BY on_time_rate DESC LIMIT 5"
-            elif "procurement" in prompt.lower() and "sales" in prompt.lower():
-                sql = "-- DEMO: procurement vs sales join"
-            else:
-                sql = "-- DEMO: please refine prompt (try 'top vendors' or 'procurement vs sales')"
-            st.session_state.generated_sql = sql
-            st.success("SQL generated (demo)")
-        else:
-            # REAL: call your query-generator adapter module here (TO BE IMPLEMENTED)
-            try:
-                # modules.databricks_connector or an agent module should implement this
-                from modules.agent_adapter import generate_sql_for_user
-                out = generate_sql_for_user(prompt, context={})
-                st.session_state.generated_sql = out.get("sql")
-                st.success("SQL generated (real agent)")
-            except Exception as e:
-                st.error(f"Query generator not configured: {e}")
 
-    gen_sql = st.text_area("Generated SQL (editable)", value=st.session_state.get("generated_sql",""), height=160)
+    if st.button("Generate SQL (demo)"):
+        # demo generator
+        if st.session_state.demo_mode:
+            if "vendor" in prompt.lower() and "top" in prompt.lower():
+                sql = "SELECT vendor_id, vendor_name, on_time_delivery_rate FROM demo_vendors ORDER BY on_time_delivery_rate DESC LIMIT 5"
+            elif "batch" in prompt.lower() and "trace" in prompt.lower():
+                sql = "SELECT batch_id, material_id, vendor_id, status FROM demo_batches WHERE batch_id LIKE 'B2025%'"
+            else:
+                sql = "-- DEMO: refine prompt (try 'top vendors' or 'trace batch')"
+            st.session_state.generated_sql = sql
+            st.success("Demo SQL generated")
+        else:
+            st.error("Real query generator not configured in this POC")
+
+    gen_sql = st.text_area("Generated SQL (editable)", value=st.session_state.get("generated_sql", ""), height=160)
     if expert_mode and gen_sql:
         with st.expander("Generated SQL (expert view)"):
             st.code(gen_sql, language="sql")
 
-    # Execution controls
     st.markdown("#### Execution")
-    exec_sync = st.button("Execute SQL (sync)")
-    exec_async = st.button("Execute SQL (async placeholder)")  # async placeholder (we're not running Celery here)
-    if exec_sync:
+    if st.button("Execute SQL (sync)"):
         if st.session_state.demo_mode:
-            # Demo execution: we will use small local demo dataset
-            demo_vendors = pd.DataFrame({
-                "vendor_id": ["V001","V002","V003","V004"],
-                "vendor_name": ["Alpha Logistics","Beta Supplies","Gamma Traders","Delta Corp"],
-                "on_time_rate": [0.92,0.78,0.88,0.65],
-                "defect_rate": [0.01,0.03,0.02,0.04],
-                "avg_cost":[120,110,105,150]
-            })
-            # simple SQL parser to detect vendor query
-            s = gen_sql.strip().lower()
-            if "on_time_rate" in s or "vendor" in s:
-                df = demo_vendors.sort_values("on_time_rate", ascending=False).head(10)
-            else:
-                df = pd.DataFrame({"message":["DEMO execution completed. Replace with real connector."]})
-            st.session_state.last_df = df
-            st.success("Demo SQL executed")
-        else:
-            # REAL execution: call the databricks connector module
+            # load demo data from repo/demo_data if present
+            demo_folder = APP_DIR / "demo_data"
+            vendors_path = demo_folder / "vendor_performance.json"
+            batches_path = demo_folder / "supply_chain_sample.csv"
+            df = pd.DataFrame({"message": ["No demo result. Make sure demo_data exists."]})
             try:
-                if databricks_connector is None:
-                    st.error("Databricks connector module missing. Add modules/databricks_connector.py")
-                else:
-                    cfg = st.session_state.config
-                    # databricks_connector.run_sql should implement the real run and return a pandas.DataFrame
-                    df = databricks_connector.run_sql(gen_sql, config=cfg)
-                    st.session_state.last_df = df
-                    st.success("SQL executed on Databricks")
+                if "vendor" in gen_sql.lower():
+                    vendors = pd.read_json(vendors_path)
+                    df = vendors.sort_values("on_time_delivery_rate", ascending=False)
+                elif "batch" in gen_sql.lower():
+                    batches = pd.read_csv(batches_path)
+                    df = batches
+                st.session_state.last_df = df
+                st.success("Demo execution complete")
             except Exception as e:
-                st.error(f"Databricks execution failed: {e}")
-
-    if exec_async:
-        st.info("Async execution placeholder. For long-running tasks use Celery/Redis (not enabled in this POC).")
+                st.error(f"Demo dataset missing or error: {e}")
+        else:
+            if databricks_connector is None:
+                st.error("Databricks connector missing. Add modules/databricks_connector.py")
+            else:
+                try:
+                    df = databricks_connector.run_sql(gen_sql, config=st.session_state.config)
+                    st.session_state.last_df = df
+                    st.success("Query executed on Databricks")
+                except Exception as e:
+                    st.error(f"Databricks execution error: {e}")
 
 # ---- Right: Results & Insights ----
 with right_col:
     st.markdown("### 📊 Results & Insights")
-    if st.session_state.get("last_df") is None:
+    if st.session_state.last_df is None:
         st.info("No results yet. Run a query on the left.")
     else:
         df = st.session_state.last_df
         st.dataframe(df)
-        # quick plot suggestions
         numeric_cols = df.select_dtypes(include="number").columns.tolist()
         if numeric_cols:
             st.markdown("**Suggested chart**")
             chart_col = numeric_cols[0]
-            st.bar_chart(df.set_index(df.columns[1])[chart_col]) if df.shape[0] > 0 else None
-        # pin insight
+            try:
+                st.bar_chart(df.set_index(df.columns[1])[chart_col])
+            except Exception:
+                pass
         if st.button("Pin this insight"):
             st.session_state.pinned.append({
                 "title": f"Pin: {time.strftime('%Y-%m-%d %H:%M:%S')}",
@@ -276,18 +235,18 @@ with right_col:
     for i, card in enumerate(st.session_state.pinned[::-1]):
         st.markdown(f"**{card.get('title')}**")
         st.write(card.get("summary"))
-        st.table(card.get("df").head(5))
-        if st.button(f"Export slide #{i}"):
-            # export single slide via export_ppt module if available
-            try:
-                if export_ppt:
+        try:
+            st.table(card.get("df").head(5))
+        except Exception:
+            st.write(card.get("df"))
+        if export_ppt:
+            if st.button(f"Export slide #{i}"):
+                try:
                     path = export_ppt.create_pptx_from_insights([card], out_path=f"insight_{i}.pptx")
                     with open(path, "rb") as f:
                         st.download_button("Download PPTX", f.read(), file_name=path)
-                else:
-                    st.error("Export module missing (modules/export_ppt.py).")
-            except Exception as e:
-                st.error(f"PPT export error: {e}")
+                except Exception as e:
+                    st.error(f"PPT export error: {e}")
 
 # -----------------------
 # Upload grounding docs & vector embed
@@ -299,7 +258,6 @@ if uploads:
     st.info(f"{len(uploads)} files uploaded. Storing and embedding...")
     try:
         if vector_engine is None:
-            # fallback: save files locally for demo
             saved = []
             for f in uploads:
                 dest = GROUNDING_DIR / f.name
@@ -309,7 +267,7 @@ if uploads:
             st.json(saved)
             st.success("Files saved (demo)")
         else:
-            cfg = st.session_state.config.get("vec_config", {})
+            cfg = st.session_state.config.get("vec_config", {"demo_mode": st.session_state.demo_mode})
             stored_meta = vector_engine.store_documents_and_embeddings(uploads, vec_config=cfg)
             st.json(stored_meta)
             st.success("Stored & embedded to vector DB")
@@ -317,28 +275,27 @@ if uploads:
         st.error(f"Embedding/storage failed: {e}")
 
 # -----------------------
-# Neo4j sync panel (admin)
+# Neo4j sync (admin)
 # -----------------------
 st.markdown("---")
 st.header("🔗 Neo4j Schema / Ontology (admin)")
 if st.session_state.get("admin_unlocked", False):
-    if st.button("Extract Databricks metadata and push to Neo4j (dry-run)"):
-        st.info("Dry-run: will simulate metadata extraction (replace with real implementation)")
-        # TODO: call databricks metadata -> build schema object
-        schema = {"demo_table": ["col1","col2","col3"]}
+    if st.button("Extract Databricks metadata (dry-run)"):
+        st.info("Dry-run: simulate metadata extraction")
+        schema = {"demo_table": ["col1", "col2", "col3"]}
         st.json(schema)
     if st.button("Push schema to Neo4j (real)"):
         if neo4j_sync is None:
             st.error("Neo4j sync module missing (modules/neo4j_sync.py)")
         else:
-            schema_obj = {"demo_table": ["col1","col2","col3"]}  # replace with real metadata
+            schema_obj = {"demo_table": ["col1", "col2", "col3"]}
             ok = neo4j_sync.sync_schema_to_neo4j(schema_obj, config=st.session_state.config)
             if ok:
                 st.success("Schema pushed to Neo4j")
             else:
                 st.error("Neo4j push failed")
 else:
-    st.info("Unlock the admin cockpit to enable Neo4j sync and advanced actions")
+    st.info("Unlock Admin to enable Neo4j actions")
 
 # -----------------------
 # Export full report (ppt/pdf)
@@ -356,8 +313,5 @@ if st.button("Export pinned insights to PPTX (demo)"):
         except Exception as e:
             st.error(f"Export failed: {e}")
 
-# -----------------------
-# Footer / help
-# -----------------------
 st.markdown("---")
 st.caption("POC: Demo mode enabled by default. Replace module placeholders under /modules for full REAL integration.")
